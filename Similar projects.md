@@ -28,3 +28,8 @@ Give Discover provides NGO discovery, sector/category filtering, organization pr
 This is the one I want you to study carefully because it is surprisingly close to part of what we've been imagining.
 Devpost lets participants indicate that they're looking for teammates, search for people/skills, send team-up requests, and then have a team leader add members to the project. It also supports project/team collaboration around hackathons.
        link : https://devpost.com/
+
+
+6. Microsoft Teams — study the workspace
+Teams currently combines chats/channels, shared content, meetings, files and collaboration, with access controls around messages and files.
+     link : https://www.microsoft.com/en-in/microsoft-teams/group-chat-software/       
