@@ -14,3 +14,11 @@ LinkedIn is especially useful for the part you described earlier: searching for 
 This one is probably one of the most useful websites for us to inspect.
 iVolunteer connects volunteers and NGOs, supports personalized volunteer profiles and opportunities, and also provides NGOs with a volunteer-management system. It operates across multiple Indian cities and states, including Bengaluru and Karnataka.
      link : https://www.ivolunteer.in/
+
+
+
+4. Give.do / Give Discover — study NGO profiles + trust
+This is another important one for your new thinking.
+Give Discover provides NGO discovery, sector/category filtering, organization profiles, impact information, leadership details and verification/trust information. It currently lists thousands of nonprofits and provides structured information about their work.
+
+   link :https://give.do/
