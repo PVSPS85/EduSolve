@@ -33,3 +33,9 @@ Devpost lets participants indicate that they're looking for teammates, search fo
 6. Microsoft Teams — study the workspace
 Teams currently combines chats/channels, shared content, meetings, files and collaboration, with access controls around messages and files.
      link : https://www.microsoft.com/en-in/microsoft-teams/group-chat-software/       
+
+
+7 . SevaSaarthi — VERY close to our direction
+This is probably the closest Indian example I found.
+It connects NGOs and colleges, where NGOs share real needs, those needs are structured into problem statements, colleges discover matching challenges, students work on them with NGO/faculty guidance, and solutions are delivered back to the community.  
+     link : https://www.sevasaarthi.in/
