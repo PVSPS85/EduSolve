@@ -39,3 +39,10 @@ Teams currently combines chats/channels, shared content, meetings, files and col
 This is probably the closest Indian example I found.
 It connects NGOs and colleges, where NGOs share real needs, those needs are structured into problem statements, colleges discover matching challenges, students work on them with NGO/faculty guidance, and solutions are delivered back to the community.  
      link : https://www.sevasaarthi.in/
+
+
+8.Solve for Good
+This one is also very close conceptually.
+Organizations post data-related projects, skilled volunteers help define the problem, work with the organization, develop solutions, and provide feedback/results. Solve For Good
+So:
+      link : https://solveforgood.org/
