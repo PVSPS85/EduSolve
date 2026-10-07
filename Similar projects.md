@@ -46,3 +46,26 @@ This one is also very close conceptually.
 Organizations post data-related projects, skilled volunteers help define the problem, work with the organization, develop solutions, and provide feedback/results. Solve For Good
 So:
       link : https://solveforgood.org/
+
+
+9.  DSSD — Student-led technology for nonprofits
+This is particularly relevant to your student + NGO idea.
+DSSD connects student teams with nonprofits and NGOs that need software, GIS and data projects. Organizations submit project inquiries, they are reviewed, and student hubs work on them.
+
+     link : https://dssdglobal.org/
+
+
+10. SevaPremi
+This one is interesting for the social-network/community side.
+It describes a platform where students, experts, volunteers and communities collaborate around local challenges, with sections such as Problems, Solutions, Members, Missions and Stories.
+
+      link : https://www.sevapremi.com/cocreation-hub
+
+
+    11 . Capstone Portal
+This is more college-project focused.
+Students discover problem statements, form teams based on skills, collaborate with mentors, and track project progress.
+
+
+  link : https://capstone.kct.ac.in/
+    
