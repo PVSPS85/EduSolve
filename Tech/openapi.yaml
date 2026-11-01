@@ -1,0 +1,756 @@
+openapi: 3.1.0
+info:
+  title: EduSolve API Contract
+  version: 0.1.0-draft
+  description: |
+    Shared API contract for EduSolve. Supabase Data API reads are protected by PostgreSQL RLS.
+    Transactional operations use the named PostgreSQL RPCs. Other privileged workflows use
+    authenticated Supabase Edge Functions. The AI service is private and must not be called by browsers.
+servers:
+  - url: https://{projectRef}.supabase.co
+    description: Supabase project endpoint
+    variables:
+      projectRef:
+        default: YOUR_PROJECT_REF
+security:
+  - SupabaseApiKey: []
+    SupabaseBearer: []
+paths:
+  /rest/v1/rpc/create_organization:
+    post:
+      operationId: createOrganization
+      summary: Create an organization and pending verification record
+      description: Authenticated RPC. Creates organization, private registration record and owner membership atomically. Does not grant project publishing permission.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrganizationRequest'
+      responses:
+        '200':
+          description: Organization created
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [organization_id, verification_status]
+                  properties:
+                    organization_id: { type: string, format: uuid }
+                    verification_status: { type: string, enum: [pending_review] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /rest/v1/rpc/submit_project_application:
+    post:
+      operationId: submitProjectApplication
+      summary: Submit a quick application and create or return a project-linked conversation
+      description: Authenticated student RPC. Only published projects from verified, posting-enabled organizations can receive applications.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitProjectApplicationRequest'
+      responses:
+        '200':
+          description: Application and conversation identifiers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [application_id, conversation_id, application_status]
+                  properties:
+                    application_id: { type: string, format: uuid }
+                    conversation_id: { type: string, format: uuid }
+                    application_status: { type: string, enum: [submitted] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /rest/v1/rpc/assign_project_to_student:
+    post:
+      operationId: assignProjectToStudent
+      summary: Assign an eligible applicant and create or reuse a private workspace
+      description: Authenticated NGO representative RPC. Checks organization permissions and application state inside the transaction.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignProjectRequest'
+      responses:
+        '200':
+          description: Assignment and workspace result
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [workspace_id, application_id, member_role]
+                  properties:
+                    workspace_id: { type: string, format: uuid }
+                    application_id: { type: string, format: uuid }
+                    member_role: { type: string, enum: [student_lead, student_collaborator] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /rest/v1/rpc/invite_workspace_student:
+    post:
+      operationId: inviteWorkspaceStudent
+      summary: Invite a student to a project workspace
+      description: Creates an invitation only. It does not grant workspace membership.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InviteWorkspaceStudentRequest'
+      responses:
+        '200':
+          description: Invitation created
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    invitation_id: { type: string, format: uuid }
+                    invitation_status: { type: string, enum: [pending] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /rest/v1/rpc/respond_workspace_invitation:
+    post:
+      operationId: respondWorkspaceInvitation
+      summary: Accept or decline a workspace invitation
+      description: Only the invited student can respond. Acceptance still requires NGO approval before membership is granted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [p_invitation_id, p_accept]
+              properties:
+                p_invitation_id: { type: string, format: uuid }
+                p_accept: { type: boolean }
+      responses:
+        '200':
+          description: Updated invitation status
+          content:
+            application/json:
+              schema:
+                type: string
+                enum: [accepted, declined]
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /rest/v1/rpc/review_workspace_invitation:
+    post:
+      operationId: reviewWorkspaceInvitation
+      summary: Approve or reject a student invitation
+      description: Only an authorized representative of the owning NGO can approve. An approved invitation creates workspace membership.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [p_invitation_id, p_approve]
+              properties:
+                p_invitation_id: { type: string, format: uuid }
+                p_approve: { type: boolean }
+      responses:
+        '200':
+          description: Updated invitation status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    invitation_id: { type: string, format: uuid }
+                    invitation_status: { type: string, enum: [approved, rejected] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /rest/v1/rpc/submit_progress_update:
+    post:
+      operationId: submitProgressUpdate
+      summary: Submit a daily progress report
+      description: Active workspace member only. Upserts one report per member/workspace/date and emits activity/notifications.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitProgressRequest'
+      responses:
+        '200':
+          description: Progress update saved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    progress_update_id: { type: string, format: uuid }
+                    report_date: { type: string, format: date }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /rest/v1/rpc/complete_project:
+    post:
+      operationId: completeProject
+      summary: Mark a project and workspace complete
+      description: Only an authorized representative of the owning NGO can complete a project.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [p_workspace_id]
+              properties:
+                p_workspace_id: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Project completion result
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    project_id: { type: string, format: uuid }
+                    project_status: { type: string, enum: [completed] }
+                    workspace_status: { type: string, enum: [completed] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /rest/v1/rpc/submit_project_review:
+    post:
+      operationId: submitProjectReview
+      summary: Submit the NGO's review of a student
+      description: Only the owning NGO can review an active student member after workspace completion. One review per organization/student/workspace.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitProjectReviewRequest'
+      responses:
+        '200':
+          description: Review UUID
+          content:
+            application/json:
+              schema:
+                type: string
+                format: uuid
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /functions/v1/organization-run-verification:
+    post:
+      operationId: runOrganizationVerification
+      summary: Run permitted preliminary organization registry checks
+      description: Authenticated and rate-limited. Checks evidence against permitted sources; does not automatically grant verification based only on an ID match.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [organization_id]
+              properties:
+                organization_id: { type: string, format: uuid }
+      responses:
+        '200': { $ref: '#/components/responses/GenericSuccess' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /functions/v1/project-create:
+    post:
+      operationId: createProject
+      summary: Create a draft project for an organization the caller can manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectCreateRequest'
+      responses:
+        '201': { $ref: '#/components/responses/GenericSuccess' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /functions/v1/project-update:
+    post:
+      operationId: updateProject
+      summary: Update a project owned by an organization the caller can manage
+      description: Validates an allowlist of editable fields and verifies organization membership server-side.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, changes]
+              properties:
+                project_id: { type: string, format: uuid }
+                changes: { type: object, additionalProperties: true }
+      responses:
+        '200': { $ref: '#/components/responses/GenericSuccess' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /functions/v1/project-close:
+    post:
+      operationId: closeProject
+      summary: Close a project and stop new applications
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id]
+              properties:
+                project_id: { type: string, format: uuid }
+      responses:
+        '200': { $ref: '#/components/responses/GenericSuccess' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /functions/v1/project-publish:
+    post:
+      operationId: publishProject
+      summary: Publish an eligible project
+      description: Requires an authorized organization member, required project fields, verified organization status and project_posting_enabled=true.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id]
+              properties:
+                project_id: { type: string, format: uuid }
+      responses:
+        '200': { $ref: '#/components/responses/GenericSuccess' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/InvalidState' }
+  /functions/v1/application-decision:
+    post:
+      operationId: decideApplication
+      summary: Move an application to under review or declined
+      description: The owning organization only. Acceptance/assignment must use assign_project_to_student RPC so assignment and workspace creation stay transactional.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [application_id, decision]
+              properties:
+                application_id: { type: string, format: uuid }
+                decision: { type: string, enum: [under_review, declined] }
+                note: { type: string, maxLength: 1000 }
+      responses:
+        '200': { $ref: '#/components/responses/GenericSuccess' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /functions/v1/send-message:
+    post:
+      operationId: sendMessage
+      summary: Send a conversation message
+      description: Active conversation members only. Validate attachments and enforce idempotency using client_message_id.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+      responses:
+        '201': { $ref: '#/components/responses/GenericSuccess' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /functions/v1/workspace-task-create:
+    post:
+      operationId: createWorkspaceTask
+      summary: Create a workspace task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceTaskCreateRequest'
+      responses:
+        '201': { $ref: '#/components/responses/GenericSuccess' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /functions/v1/workspace-task-update:
+    post:
+      operationId: updateWorkspaceTask
+      summary: Update a workspace task with field-level permission checks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [task_id, changes]
+              properties:
+                task_id: { type: string, format: uuid }
+                changes:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    title: { type: string, maxLength: 180 }
+                    description: { type: string, maxLength: 5000 }
+                    assignee_id: { type: [string, 'null'], format: uuid }
+                    deadline: { type: [string, 'null'], format: date }
+                    status: { type: string, enum: [todo, in_progress, completed, blocked] }
+                    completion_note: { type: string, maxLength: 2000 }
+      responses:
+        '200': { $ref: '#/components/responses/GenericSuccess' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /functions/v1/workspace-file-finalize:
+    post:
+      operationId: finalizeWorkspaceFile
+      summary: Validate an uploaded private file and save metadata
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceFileFinalizeRequest'
+      responses:
+        '201': { $ref: '#/components/responses/GenericSuccess' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+  /functions/v1/project-review-report:
+    post:
+      operationId: reportProjectReview
+      summary: Report a potentially abusive or misleading project review
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [review_id, reason]
+              properties:
+                review_id: { type: string, format: uuid }
+                reason: { type: string, minLength: 5, maxLength: 3000 }
+      responses:
+        '201': { $ref: '#/components/responses/GenericSuccess' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /functions/v1/ai-chat-summary:
+    post:
+      operationId: getAiChatSummary
+      summary: Generate a role-aware chat summary
+      description: The server derives the viewer role and constructs authorized context. The browser may not submit arbitrary profile context or privileged role claims.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [conversation_id]
+              properties:
+                conversation_id: { type: string, format: uuid }
+                question: { type: string, maxLength: 1000 }
+      responses:
+        '200':
+          description: Structured AI summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiChatSummaryResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /functions/v1/ai-problem-structure:
+    post:
+      operationId: structureProblemWithAi
+      summary: Draft structured problem details for NGO review
+      description: AI output is a draft only; it cannot verify the NGO or publish the project.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [organization_id, problem_statement]
+              properties:
+                organization_id: { type: string, format: uuid }
+                problem_statement: { type: string, minLength: 20, maxLength: 10000 }
+      responses:
+        '200': { $ref: '#/components/responses/GenericSuccess' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /functions/v1/ai-project-recommendations:
+    post:
+      operationId: getAiProjectRecommendations
+      summary: Recommend published projects using shared student skills and interests
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit: { type: integer, minimum: 1, maximum: 20, default: 10 }
+                filters: { type: object, additionalProperties: true }
+      responses:
+        '200': { $ref: '#/components/responses/GenericSuccess' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /functions/v1/call-session-create:
+    post:
+      operationId: createCallSession
+      summary: Create a short-lived call join session
+      description: Optional integration pending provider choice. Server validates conversation/workspace membership and returns time-limited join data; never expose provider secrets.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [call_type]
+              properties:
+                conversation_id: { type: [string, 'null'], format: uuid }
+                workspace_id: { type: [string, 'null'], format: uuid }
+                call_type: { type: string, enum: [audio, video, group_video] }
+      responses:
+        '200': { $ref: '#/components/responses/GenericSuccess' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /functions/v1/github-webhook:
+    post:
+      operationId: receiveGithubWebhook
+      summary: Receive GitHub repository events
+      description: No user bearer token. Must verify GitHub signature, validate repository mapping and deduplicate using provider delivery ID before writing normalized events.
+      security: []
+      parameters:
+        - in: header
+          name: X-Hub-Signature-256
+          required: true
+          schema: { type: string }
+        - in: header
+          name: X-GitHub-Delivery
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '202': { description: Event accepted or already processed }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { description: Invalid webhook signature }
+  /functions/v1/resend-webhook:
+    post:
+      operationId: receiveResendWebhook
+      summary: Receive email delivery events
+      description: No user bearer token. Verify Resend's webhook signature and deduplicate the provider event before updating delivery logs.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '202': { description: Event accepted or already processed }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { description: Invalid webhook signature }
+components:
+  securitySchemes:
+    SupabaseApiKey:
+      type: apiKey
+      in: header
+      name: apikey
+    SupabaseBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    CreateOrganizationRequest:
+      type: object
+      required: [p_display_name, p_legal_name, p_registration_type, p_registration_identifier, p_official_email]
+      properties:
+        p_display_name: { type: string, minLength: 2, maxLength: 200 }
+        p_legal_name: { type: string, minLength: 2, maxLength: 250 }
+        p_registration_type: { type: string, enum: [ngo_darpan, section_8_company, trust, society, other] }
+        p_registration_identifier: { type: string, minLength: 2, maxLength: 200 }
+        p_official_email: { type: string, format: email }
+        p_description: { type: [string, 'null'], maxLength: 4000 }
+        p_mission: { type: [string, 'null'], maxLength: 2000 }
+        p_focus_areas: { type: array, items: { type: string, maxLength: 80 }, maxItems: 20, default: [] }
+        p_city: { type: [string, 'null'], maxLength: 120 }
+        p_region: { type: [string, 'null'], maxLength: 120 }
+        p_website_url: { type: [string, 'null'], format: uri }
+    SubmitProjectApplicationRequest:
+      type: object
+      required: [p_project_id, p_intro_message]
+      properties:
+        p_project_id: { type: string, format: uuid }
+        p_intro_message: { type: string, minLength: 10, maxLength: 2000 }
+        p_relevant_skills: { type: array, items: { type: string, maxLength: 80 }, maxItems: 30, default: [] }
+        p_portfolio_url: { type: [string, 'null'], format: uri }
+    AssignProjectRequest:
+      type: object
+      required: [p_project_id, p_student_id]
+      properties:
+        p_project_id: { type: string, format: uuid }
+        p_student_id: { type: string, format: uuid }
+        p_assignment_note: { type: [string, 'null'], maxLength: 1000 }
+    InviteWorkspaceStudentRequest:
+      type: object
+      required: [p_workspace_id, p_invitee_id]
+      properties:
+        p_workspace_id: { type: string, format: uuid }
+        p_invitee_id: { type: string, format: uuid }
+        p_invitation_message: { type: [string, 'null'], maxLength: 1000 }
+    SubmitProgressRequest:
+      type: object
+      required: [p_workspace_id, p_completed_work]
+      properties:
+        p_workspace_id: { type: string, format: uuid }
+        p_report_date: { type: [string, 'null'], format: date }
+        p_completed_work: { type: string, minLength: 3, maxLength: 5000 }
+        p_next_steps: { type: [string, 'null'], maxLength: 3000 }
+        p_blockers: { type: [string, 'null'], maxLength: 3000 }
+        p_related_task_id: { type: [string, 'null'], format: uuid }
+        p_github_url: { type: [string, 'null'], format: uri }
+    SubmitProjectReviewRequest:
+      type: object
+      required: [p_workspace_id, p_student_id, p_overall_rating]
+      properties:
+        p_workspace_id: { type: string, format: uuid }
+        p_student_id: { type: string, format: uuid }
+        p_overall_rating: { type: integer, minimum: 1, maximum: 5 }
+        p_quality_rating: { type: [integer, 'null'], minimum: 1, maximum: 5 }
+        p_reliability_rating: { type: [integer, 'null'], minimum: 1, maximum: 5 }
+        p_communication_rating: { type: [integer, 'null'], minimum: 1, maximum: 5 }
+        p_teamwork_rating: { type: [integer, 'null'], minimum: 1, maximum: 5 }
+        p_written_review: { type: [string, 'null'], maxLength: 3000 }
+    ProjectCreateRequest:
+      type: object
+      required: [organization_id, title, category, short_description, problem_statement]
+      properties:
+        organization_id: { type: string, format: uuid }
+        title: { type: string, minLength: 5, maxLength: 180 }
+        category: { type: string, minLength: 2, maxLength: 80 }
+        short_description: { type: string, minLength: 20, maxLength: 500 }
+        problem_statement: { type: string, minLength: 20, maxLength: 10000 }
+        why_it_matters: { type: string, maxLength: 3000 }
+        objectives: { type: array, items: { type: string }, maxItems: 20 }
+        required_skills: { type: array, items: { type: string, maxLength: 80 }, maxItems: 30 }
+        expected_deliverables: { type: array, items: { type: string }, maxItems: 30 }
+        duration_weeks: { type: integer, minimum: 1, maximum: 104 }
+        work_mode: { type: string, enum: [remote, onsite, hybrid] }
+        weekly_commitment_hours: { type: number, minimum: 0, maximum: 80 }
+        team_size_min: { type: integer, minimum: 1, maximum: 100 }
+        team_size_max: { type: integer, minimum: 1, maximum: 100 }
+        constraints: { type: string, maxLength: 5000 }
+        material_expenses: { type: string, maxLength: 2000 }
+        cover_image_path: { type: string, maxLength: 500 }
+    SendMessageRequest:
+      type: object
+      required: [conversation_id, client_message_id, message_type]
+      properties:
+        conversation_id: { type: string, format: uuid }
+        client_message_id: { type: string, format: uuid }
+        message_type: { type: string, enum: [text, image, file] }
+        body: { type: [string, 'null'], maxLength: 10000 }
+        attachment_paths: { type: array, items: { type: string, maxLength: 500 }, maxItems: 10 }
+    WorkspaceTaskCreateRequest:
+      type: object
+      required: [workspace_id, title]
+      properties:
+        workspace_id: { type: string, format: uuid }
+        title: { type: string, minLength: 2, maxLength: 180 }
+        description: { type: [string, 'null'], maxLength: 5000 }
+        assignee_id: { type: [string, 'null'], format: uuid }
+        deadline: { type: [string, 'null'], format: date }
+    WorkspaceFileFinalizeRequest:
+      type: object
+      required: [workspace_id, storage_path, original_file_name, mime_type, size_bytes]
+      properties:
+        workspace_id: { type: string, format: uuid }
+        storage_path: { type: string, minLength: 1, maxLength: 500 }
+        original_file_name: { type: string, minLength: 1, maxLength: 255 }
+        mime_type: { type: string, maxLength: 150 }
+        size_bytes: { type: integer, minimum: 1, maximum: 52428800 }
+        related_task_id: { type: [string, 'null'], format: uuid }
+    AiChatSummaryResponse:
+      type: object
+      required: [summary, relevant_evidence, missing_information, suggested_questions, disclaimer]
+      properties:
+        summary: { type: string, maxLength: 5000 }
+        relevant_evidence: { type: array, items: { type: string }, maxItems: 15 }
+        missing_information: { type: array, items: { type: string }, maxItems: 15 }
+        suggested_questions: { type: array, items: { type: string }, maxItems: 15 }
+        disclaimer: { type: string }
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            request_id: { type: [string, 'null'] }
+  responses:
+    GenericSuccess:
+      description: Successful operation
+      content:
+        application/json:
+          schema: { type: object, additionalProperties: true }
+    BadRequest:
+      description: Invalid input
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Unauthorized:
+      description: Missing or invalid authentication
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Forbidden:
+      description: Authenticated but not authorized
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Conflict:
+      description: Duplicate request or conflicting workflow state
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    InvalidState:
+      description: Resource is not in the required state for the operation
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    PayloadTooLarge:
+      description: File or payload exceeds configured limits
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    RateLimited:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
