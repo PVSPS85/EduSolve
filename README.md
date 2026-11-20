@@ -26,7 +26,39 @@ frontend/src/
 └── index.css           # Tailwind CSS v4 & global styles
 ```
 
-## Running Locally
+---
+
+## Running with Docker (Recommended for any OS)
+
+Docker ensures the frontend runs identically on any machine (Windows, macOS, Linux) without worrying about Node.js or dependency versions.
+
+### 1. Using Docker Compose (Single Command)
+
+From the root project folder:
+
+```bash
+docker compose up --build
+```
+
+Then open **[http://localhost:3000](http://localhost:3000)** in your browser.
+
+### 2. Using Docker Directly
+
+```bash
+# Build the image
+docker build -t edusolve-frontend ./frontend
+
+# Run the container
+docker run -p 3000:80 edusolve-frontend
+```
+
+Then open **[http://localhost:3000](http://localhost:3000)**.
+
+---
+
+## Running Locally (without Docker)
+
+Prerequisites: Node.js 18+ or 20+
 
 ```bash
 cd frontend
