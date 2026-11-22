@@ -49,6 +49,10 @@ class LLMConfigurationError(AppException):
 class BaseLLMProvider(ABC):
     """Abstract base class for all LLM providers supporting structured output."""
 
+    async def generate_text(self, prompt: str, system_prompt: str = "") -> str:
+        """Execute text LLM inference. Default implementation returns advisory summary."""
+        return "Analysis complete based on context."
+
     @abstractmethod
     async def generate_structured(
         self,
@@ -303,6 +307,57 @@ class MockLLMProvider(BaseLLMProvider):
                     "Pending platform verification",
                 ]
             return response_schema.model_validate(default_data)
+
+        elif schema_name == "AiProblemStructureResponse":
+            title = "Rural Learning Center Offline Attendance and Literacy Tracker"
+            if "SYSTEM OVERRIDE" in prompt:
+                title = "Sanitized Problem Scoping Response"
+            default_data = {
+                "suggested_title": title,
+                "short_description": "A lightweight mobile-first application designed for rural learning centers to record student attendance and monthly literacy assessments offline, automatically syncing data to a central administrative dashboard when network connectivity is available.",
+                "objectives": [
+                    "Digitize daily attendance tracking across 15 rural learning centers without internet dependency.",
+                    "Enable local teachers to record monthly reading level assessments directly on smartphones.",
+                    "Ensure seamless background data synchronization to the NGO central management dashboard upon network reconnection.",
+                ],
+                "required_skills": [
+                    "React",
+                    "TypeScript",
+                    "IndexedDB",
+                    "Progressive Web Apps (PWA)",
+                    "FastAPI",
+                    "PostgreSQL",
+                ],
+                "deliverables": [
+                    "Offline-capable PWA mobile interface with IndexedDB local storage caching.",
+                    "Background sync service worker for bidirectional data synchronization.",
+                    "Central reporting dashboard for NGO administrators to monitor student progress.",
+                    "Deployment and operational guide for non-technical field coordinators.",
+                ],
+                "constraints_to_clarify": [
+                    "Specific smartphone OS versions and minimum hardware specifications used by teachers.",
+                    "Sync conflict resolution policy if attendance records are edited offline by multiple devices.",
+                ],
+                "risks": [
+                    "Data loss risk if field smartphone is damaged or reset before sync takes place.",
+                    "Low digital literacy among rural teachers requiring intuitive, minimal UI workflows.",
+                ],
+                "disclaimer": "AI-generated problem structure is advisory. NGO review and final project scoping approval are required.",
+            }
+            return response_schema.model_validate(default_data)
+
+        elif schema_name == "LLMRecommendationBatchResponse":
+            import re
+            ids = re.findall(r'"project_id":\s*"([^"]+)"', prompt)
+            explanations = []
+            for pid in ids:
+                explanations.append({
+                    "project_id": pid,
+                    "match_explanation": "Matches student's demonstrated technical background and interest in community impact.",
+                    "suitability_reasoning": "Weekly commitment and work-mode align well with stated availability.",
+                    "limitations_or_concerns": ["Verify specific library versions with host NGO."],
+                })
+            return response_schema.model_validate({"explanations": explanations})
 
         default_data = {
             "summary": "Mock summary based on supplied context.",

@@ -3,7 +3,9 @@
 from fastapi import APIRouter, Depends
 from app.api.deps import verify_internal_auth
 from app.api.v1.chat import router as chat_router
+from app.api.v1.problem import router as problem_router
 from app.api.v1.profiles import router as profiles_router
+from app.api.v1.recommendations import router as recommendations_router
 from app.config import Settings, get_settings
 from app.schemas.common import HealthResponse, PingResponse
 
@@ -12,6 +14,8 @@ router = APIRouter(prefix="/internal/v1", tags=["Internal v1"])
 # Include sub-routers
 router.include_router(chat_router)
 router.include_router(profiles_router)
+router.include_router(problem_router)
+router.include_router(recommendations_router)
 
 
 @router.get(

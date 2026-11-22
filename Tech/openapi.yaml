@@ -638,6 +638,29 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /internal/v1/project-recommendations:
+    post:
+      operationId: internalProjectRecommendations
+      summary: Private internal endpoint for student project recommendations
+      description: Service-to-service internal endpoint called by the ai-project-recommendations Edge Function. Computes deterministic compatibility scores (skills, evidence, interests, availability, work mode) and generates contextual match explanations using structured LLM synthesis.
+      security:
+        - InternalServiceSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AiProjectRecommendationsRequest'
+      responses:
+        '200':
+          description: Ranked project recommendations with evidence-grounded match explanations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiProjectRecommendationsResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /functions/v1/call-session-create:
     post:
       operationId: createCallSession
@@ -1018,6 +1041,185 @@ components:
         disclaimer:
           type: string
           description: "Standard advisory disclaimer emphasizing human-in-the-loop NGO review and approval"
+    RecommendationStudentSkill:
+      type: object
+      required:
+        - skill_name
+      properties:
+        skill_name:
+          type: string
+          maxLength: 80
+        proficiency:
+          type: [string, 'null']
+          enum: [beginner, intermediate, advanced, expert]
+          description: "Student-reported proficiency level"
+        evidence_source:
+          type: [string, 'null']
+          enum: [self_reported, portfolio_item, experience, certification]
+          description: >
+            Source documenting the skill. Semantics:
+            - self_reported: Unverified claim in profile skills list or bio.
+            - portfolio_item: Technology present in a student's public code/demo repository. Does NOT equate to verified proficiency.
+            - experience: Associated with past work/volunteer roles.
+            - certification: Credential issued by an external authority.
+            Proficiency and evidence_source are distinct attributes.
+    RecommendationStudentProfile:
+      type: object
+      description: "Pre-authorized student profile data supplied by the Edge Function. Excludes private contact and identifier details."
+      properties:
+        skills:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecommendationStudentSkill'
+          default: []
+        portfolio_technologies:
+          type: array
+          items:
+            type: string
+          default: []
+          description: "Technologies demonstrated through concrete portfolio project repositories"
+        interests:
+          type: array
+          items:
+            type: string
+          default: []
+          description: "Explicitly supplied student interests only. Never inferred from browsing or past activity. Defaults to empty list when omitted."
+        weekly_availability_hours:
+          type: [number, 'null']
+          minimum: 0
+          maximum: 80
+          description: "Authorized weekly commitment hours. Inactive/unavailable students are pre-filtered by the Edge Function."
+        preferred_work_mode:
+          type: [string, 'null']
+          enum: [remote, onsite, hybrid]
+        study_year:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 12
+    RecommendationCandidateProject:
+      type: object
+      required:
+        - id
+        - title
+        - category
+        - short_description
+        - required_skills
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          maxLength: 180
+        category:
+          type: string
+          maxLength: 80
+        short_description:
+          type: string
+          maxLength: 500
+        required_skills:
+          type: array
+          items:
+            type: string
+          default: []
+        weekly_commitment_hours:
+          type: [number, 'null']
+          minimum: 0
+          maximum: 80
+        work_mode:
+          type: [string, 'null']
+          enum: [remote, onsite, hybrid]
+        duration_weeks:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 104
+        constraints:
+          type: [string, 'null']
+          maxLength: 5000
+    AiProjectRecommendationsRequest:
+      type: object
+      required:
+        - student
+        - candidate_projects
+      properties:
+        student:
+          $ref: '#/components/schemas/RecommendationStudentProfile'
+        candidate_projects:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecommendationCandidateProject'
+          description: "Pre-filtered published projects passed by the Edge Function for recommendation scoring"
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 20
+          default: 10
+    ProjectRecommendationItem:
+      type: object
+      required:
+        - project_id
+        - match_score
+        - match_explanation
+        - matching_skills
+        - missing_skills
+        - suitability_reasoning
+        - limitations_or_concerns
+      properties:
+        project_id:
+          type: string
+          format: uuid
+        match_score:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+          description: "Deterministic compatibility score (0.0 to 1.0) owned by the recommendation scorer"
+        match_explanation:
+          type: string
+          maxLength: 1000
+          description: "Clear, evidence-grounded explanation for why this project was recommended"
+        matching_skills:
+          type: array
+          items:
+            type: string
+          description: "Required project skills that match the student's self-reported or demonstrated skills"
+        missing_skills:
+          type: array
+          items:
+            type: string
+          description: "Required project skills the student has not listed or demonstrated"
+        suitability_reasoning:
+          type: string
+          maxLength: 1000
+          description: "Analysis of availability, work-mode, and domain interest fit"
+        limitations_or_concerns:
+          type: array
+          items:
+            type: string
+          description: "Specific cautions, missing prerequisites, or workload concerns"
+    AiProjectRecommendationsResponse:
+      type: object
+      required:
+        - recommendations
+        - evaluated_projects_count
+        - is_fallback
+        - disclaimer
+      properties:
+        recommendations:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectRecommendationItem'
+          description: "Ranked list of project recommendations in descending match_score order"
+        evaluated_projects_count:
+          type: integer
+          minimum: 0
+          description: "Total number of candidate projects evaluated"
+        is_fallback:
+          type: boolean
+          default: false
+          description: "Indicates whether template-based explanations were used due to LLM provider timeout/failure"
+        disclaimer:
+          type: string
+          description: "Standard advisory disclaimer emphasizing student agency and NGO human review"
     ErrorEnvelope:
       type: object
       required: [error]

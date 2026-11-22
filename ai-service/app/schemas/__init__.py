@@ -9,6 +9,13 @@ from app.schemas.chat import (
     ViewerRole,
 )
 from app.schemas.common import ErrorDetail, ErrorEnvelope, HealthResponse, PingResponse
+from app.agents.crew.problem_scoper.schemas import (
+    AiProblemStructureRequest,
+    AiProblemStructureResponse,
+    RequirementsAnalysis,
+    SocialImpactAnalysis,
+    TechnicalArchitecture,
+)
 from app.schemas.profiles import (
     AiNgoProfileSummaryRequest,
     AiNgoProfileSummaryResponse,
@@ -22,6 +29,14 @@ from app.schemas.profiles import (
     StudentProfileData,
     StudentSkillItem,
     TargetProjectRequirements,
+)
+from app.schemas.recommendations import (
+    AiProjectRecommendationsRequest,
+    AiProjectRecommendationsResponse,
+    ProjectRecommendationItem,
+    RecommendationCandidateProject,
+    RecommendationStudentProfile,
+    RecommendationStudentSkill,
 )
 
 __all__ = [
@@ -47,4 +62,15 @@ __all__ = [
     "OrganizationProfileData",
     "AiNgoProfileSummaryRequest",
     "AiNgoProfileSummaryResponse",
+    "AiProblemStructureRequest",
+    "AiProblemStructureResponse",
+    "RequirementsAnalysis",
+    "SocialImpactAnalysis",
+    "TechnicalArchitecture",
+    "RecommendationStudentSkill",
+    "RecommendationStudentProfile",
+    "RecommendationCandidateProject",
+    "ProjectRecommendationItem",
+    "AiProjectRecommendationsRequest",
+    "AiProjectRecommendationsResponse",
 ]

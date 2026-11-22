@@ -209,8 +209,85 @@ Response (`AiProblemStructureResponse`):
 ```
 
 ### `POST /internal/v1/project-recommendations`
-Request: `{ "student_skills": ["..."], "interests": ["..."], "projects": [{ "id": "<uuid>", "required_skills": ["..."], "description": "..." }] }`
-Response: `{ "recommendations": [{ "project_id": "<uuid>", "reasons": ["..."] }] }`
+Private service-to-service internal endpoint called by the `ai-project-recommendations` Supabase Edge Function to evaluate pre-filtered published projects against a student's profile. Computes deterministic compatibility scores and generates contextual, evidence-grounded match explanations via structured LLM synthesis (or template fallback upon LLM timeout). Recommendations are advisory only; students apply independently and NGOs conduct human reviews.
+
+#### Architectural Principles & Boundaries
+1. **Explicit Interests Only**: Student interests must be explicitly provided in the request or defaulted to an empty list. The system NEVER infers interests from browsing history, page clicks, or previous applications.
+2. **Skill Evidence Semantics**:
+   - `self_reported`: Unverified claim in profile skills list or bio.
+   - `portfolio_item`: Technology present in a student's public code/demo repository. Does NOT equate to verified proficiency.
+   - `experience`: Associated with documented past work or volunteer roles.
+   - `certification`: Credential issued by an external authority.
+   Proficiency and evidence source are distinct attributes. AI explanations must never overstate evidence.
+3. **Location & Work-Mode Eligibility**:
+   - Location checking is strictly an Edge Function boundary responsibility: if a project is `onsite`, the Edge Function checks the student's profile `city` against the project's organization `city` before including it in candidate projects.
+   - The AI service receives pre-filtered candidate projects and evaluates work-mode preference (`remote`, `onsite`, `hybrid`). The AI service does NOT independently verify geographic coordinates or travel distances.
+4. **Availability Handling**:
+   - The Edge Function checks `student_profiles.availability`. Inactive or unavailable students (`availability == 'unavailable'`) are filtered out before calling the AI service.
+   - The AI service receives `weekly_availability_hours` (numeric) and never infers status from hours.
+5. **Deterministic Scoring Formula (Normalized 0.0 to 1.0)**:
+   - **Skill Compatibility ($40\%$)**: Let $R$ be required skills. Match ratio = $|S_{matched}| / |R|$. If $|R| == 0$, skill component = $1.0$.
+   - **Portfolio/Experience Evidence ($20\%$)**: Proportion of matched skills $S_{matched}$ that possess non-self-reported evidence (`portfolio_item`, `experience`, `certification`). If no skills matched, evidence component = $0.0$.
+   - **Interest Alignment ($15\%$)**: Overlap between student's explicitly supplied interests and project category or domain tags. If student interests are empty, interest component = $0.5$ (neutral baseline; missing interests do not penalize).
+   - **Availability Compatibility ($15\%$)**: If project commitment hours is null, score = $1.0$. Else if student availability $\ge$ project commitment, score = $1.0$; if student availability $<$ project commitment, score = $\max(0.0, 1.0 - (commitment - availability) / commitment)$.
+   - **Work-Mode Compatibility ($10\%$)**: Exact match = $1.0$; either party is `hybrid` = $0.7$; direct mismatch (e.g. student remote vs project onsite) = $0.0$.
+   - **Deterministic Tie-Breaking**: Ties broken by: 1) higher evidence ratio, 2) higher availability headroom ($availability - commitment$), 3) alphabetical project title, 4) project UUID.
+6. **Student Identity**:
+   - Student identity is validated via Supabase JWT by the Edge Function. `student_id` is excluded from the AI payload to minimize private data leakage.
+
+Request (`AiProjectRecommendationsRequest`):
+```json
+{
+  "student": {
+    "skills": [
+      { "skill_name": "React", "proficiency": "advanced", "evidence_source": "portfolio_item" },
+      { "skill_name": "TypeScript", "proficiency": "intermediate", "evidence_source": "portfolio_item" },
+      { "skill_name": "Python", "proficiency": "intermediate", "evidence_source": "self_reported" }
+    ],
+    "portfolio_technologies": ["React", "TypeScript", "IndexedDB"],
+    "interests": ["Digital Literacy", "Rural Education"],
+    "weekly_availability_hours": 10.0,
+    "preferred_work_mode": "remote",
+    "study_year": 3
+  },
+  "candidate_projects": [
+    {
+      "id": "7d707134-9203-4726-abe7-76df7fe11ab5",
+      "title": "Offline-First Rural Student Attendance and Literacy Tracker",
+      "category": "Education",
+      "short_description": "A lightweight web application designed for rural learning centers to record student attendance.",
+      "required_skills": ["React", "TypeScript", "TailwindCSS"],
+      "weekly_commitment_hours": 8.0,
+      "work_mode": "remote",
+      "duration_weeks": 6,
+      "constraints": "Rural centers lack stable electricity; app must operate offline."
+    }
+  ],
+  "limit": 5
+}
+```
+
+Response (`AiProjectRecommendationsResponse`):
+```json
+{
+  "recommendations": [
+    {
+      "project_id": "7d707134-9203-4726-abe7-76df7fe11ab5",
+      "match_score": 0.88,
+      "match_explanation": "Strong alignment with student's demonstrated React/TypeScript skills and interest in rural literacy.",
+      "matching_skills": ["React", "TypeScript"],
+      "missing_skills": ["TailwindCSS"],
+      "suitability_reasoning": "Weekly commitment of 8.0 hours fits comfortably within the student's 10.0 hours weekly availability. Remote work mode perfectly matches the student's preference.",
+      "limitations_or_concerns": [
+        "Student has not demonstrated TailwindCSS in portfolio; may need initial ramp-up on styling framework."
+      ]
+    }
+  ],
+  "evaluated_projects_count": 1,
+  "is_fallback": false,
+  "disclaimer": "AI recommendations are advisory suggestions to assist students in discovering opportunities. Students must verify prerequisites and NGOs must independently review applications."
+}
+```
 
 ### `POST /internal/v1/summarize-student-profile`
 Request: `{ "profile": { "display_name": "...", "bio": "...", "institution_name": "...", "degree": "...", "study_year": 3, "availability": "available", "availability_hours_per_week": 10, "preferred_work_mode": "remote", "skills": [{ "skill_name": "...", "proficiency": "intermediate" }], "portfolio_items": [{ "title": "...", "url": "...", "technologies": ["..."] }], "experiences": [{ "organization_or_project": "...", "role_title": "..." }], "certifications": [{ "title": "...", "issuer": "..." }] }, "target_project_requirements": { "title": "...", "required_skills": ["..."], "deliverables": ["..."] } }`

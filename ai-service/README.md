@@ -396,6 +396,109 @@ Provides transparent, objective intelligence on an NGO organization's focus, mis
 }
 ```
 
+---
+
+### `POST /internal/v1/problem-structure`
+
+Multi-agent Problem Structuring Crew orchestrated with CrewAI. Takes an unstructured community problem statement from an NGO and produces a structured, actionable project proposal suitable for university student volunteers.
+
+#### Crew Architecture & Agent Responsibilities
+
+```text
+┌────────────────────────────────────────────────────────┐
+│  POST /internal/v1/problem-structure                   │
+│  (Auth: X-Internal-Secret)                             │
+└───────────────────────────┬────────────────────────────┘
+                            │
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│  ProblemScopingCrew (CrewAI Sequential Process)        │
+│                                                        │
+│  1. Community Requirements Analyst                     │
+│     - Identifies core problem & beneficiaries          │
+│     - Extracts functional objectives                   │
+│     - Separates essential from optional features       │
+│                                                        │
+│  2. Social Impact & Constraints Analyst                │
+│     - Evaluates device access & internet connectivity  │
+│     - Assesses student volunteer workload feasibility  │
+│     - Identifies practical clarification questions     │
+│                                                        │
+│  3. Pragmatic Technical Architect                      │
+│     - Recommends lightweight tech stack (no overkill)  │
+│     - Formulates concrete student deliverables         │
+│     - Highlights technical risks and sync bottlenecks   │
+│                                                        │
+│  4. Proposal Synthesizer Task                          │
+│     - Reconciles contradictions across the agents      │
+│     - Verifies objectives, skills & deliverables match │
+│     - Validates against AiProblemStructureResponse     │
+└───────────────────────────┬────────────────────────────┘
+                            │
+                            ▼
+              Advisory Response to NGO
+```
+
+#### Calling from Supabase Edge Function (`ai-problem-structure`)
+
+```typescript
+const response = await fetch(`${Deno.env.get("AI_SERVICE_URL")}/internal/v1/problem-structure`, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "X-Internal-Secret": Deno.env.get("AI_SERVICE_SHARED_SECRET")!,
+  },
+  body: JSON.stringify({
+    problem_statement: ngoProblemStatement,
+    organization_focus_areas: ngoFocusAreas,
+  }),
+});
+const structuredProposal = await response.json();
+```
+
+#### Request Payload (`AiProblemStructureRequest`)
+
+```json
+{
+  "problem_statement": "We want to track attendance and literacy improvement for 500 children across 15 rural learning centers without reliable internet access. Currently, local teachers record attendance on paper registers which get damaged or lost. We need a simple, reliable system where staff can record daily attendance and monthly reading level scores on their smartphones even when offline, and have the data automatically sync to our central dashboard whenever they travel into town or get network.",
+  "organization_focus_areas": ["Digital Literacy", "Rural Education", "Youth Empowerment"]
+}
+```
+
+#### Response Payload (`AiProblemStructureResponse`)
+
+```json
+{
+  "suggested_title": "Offline-First Rural Student Attendance and Literacy Tracker",
+  "short_description": "A lightweight web application designed for rural learning centers to record student attendance and track literacy milestones with offline caching and automatic synchronization.",
+  "objectives": [
+    "Enable rural learning center staff to record daily attendance offline",
+    "Track student literacy milestones and monthly progress indicators",
+    "Synchronize recorded data automatically when internet connectivity is detected"
+  ],
+  "required_skills": [
+    "React / Next.js",
+    "IndexedDB / PWA offline caching",
+    "TypeScript",
+    "TailwindCSS"
+  ],
+  "deliverables": [
+    "Progressive Web App (PWA) with offline attendance logging",
+    "Local-to-cloud synchronization module",
+    "Simple volunteer onboarding and user guide"
+  ],
+  "constraints_to_clarify": [
+    "Hardware specifications and screen sizes of mobile devices used by rural volunteers",
+    "Frequency of internet connectivity available at learning centers (daily vs weekly sync)"
+  ],
+  "risks": [
+    "Potential data conflicts if multiple volunteers edit records concurrently offline",
+    "Variable volunteer digital literacy requiring intuitive, low-text user interfaces"
+  ],
+  "disclaimer": "AI assistance is an advisory draft. NGO representatives must review and approve all objectives, deliverables, and skill requirements before publishing the project."
+}
+```
+
 #### LLM Provider Configuration
 
 The service uses a provider abstraction (`BaseLLMProvider`). Configure in `.env`:
@@ -403,4 +506,137 @@ The service uses a provider abstraction (`BaseLLMProvider`). Configure in `.env`
 - `LLM_MODEL`: e.g. `gemini-2.5-flash` or `gpt-4o-mini`.
 - `LLM_API_KEY`: API secret for the selected provider.
 - During testing or when set to `mock`, `MockLLMProvider` is used without network calls or external billing.
+
+---
+
+### 4.5. Opportunity Recommendations (`POST /internal/v1/project-recommendations`)
+
+Scores, ranks, and generates advisory explanations for student-project opportunities.
+
+#### Architecture: Deterministic Scoring + Single-Turn LLM Explanation
+To prevent LLM hallucination and ensure auditability, candidate ranking is calculated entirely deterministically across 5 explicit dimensions:
+1. **Skill Match (40%)**: Ratio of project's `required_skills` matched by student's verified and self-reported skills using exact matching and a controlled alias dictionary (`js` -> `javascript`, `postgres` -> `postgresql`, etc.). Never uses substring matching (e.g. `Java` never matches `JavaScript`). If a project lists zero required skills, default skill match score is `1.0`.
+2. **Evidence Quality (20%)**: Ratio of matched skills backed by documented evidence (`portfolio_item`, `experience`, `certification`) rather than merely `self_reported`. Matched skills with zero evidence receive `0.0`. If no skills matched, defaults to `0.5` neutral.
+3. **Interest Alignment (15%)**: Evaluated against explicitly authorized student interests. Match with project category = `1.0`; empty student interests = `0.5` (neutral, never penalized); interests provided with no match = `0.2`.
+4. **Availability Compatibility (15%)**: Normalized ratio:
+   $$\text{min}\left(1.0, \max\left(0.0, \frac{\text{weekly\_availability\_hours}}{\text{weekly\_commitment\_hours}}\right)\right)$$
+   When availability is omitted, a neutral score of `0.7` is assigned.
+5. **Work-Mode Compatibility (10%)**: Exact match = `1.0`; either side allows `hybrid` = `0.7`; opposite modes (`remote` vs `onsite`) = `0.0`. Mandatory onsite eligibility is enforced prior to this endpoint by the Edge Function.
+
+**Deterministic Tie-Breaking**:
+Ties in composite score are broken deterministically by:
+1. Higher raw skill match ratio
+2. Higher evidence quality score
+3. Alphabetical order of project title
+4. Stable lexicographical order of project UUID
+
+**Single-Turn LLM Explanation Layer**:
+After deterministic ranking, the AI service prompts the LLM to generate `match_explanation`, `suitability_reasoning`, and `limitations_or_concerns` for each ranked project. The LLM cannot alter scores, reorder candidates, or filter projects.
+
+**Resilient Fallback**:
+If the LLM provider times out or returns an error, the endpoint gracefully falls back to deterministic template explanations with `is_fallback: true` (HTTP 200), ensuring upstream Edge Functions and students always receive ranked recommendations.
+
+#### Edge Function Invocation Example (Deno / TypeScript)
+
+```typescript
+const response = await fetch(`${AI_SERVICE_URL}/internal/v1/project-recommendations`, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "X-Internal-Secret": AI_SERVICE_SHARED_SECRET,
+  },
+  body: JSON.stringify({
+    student: {
+      skills: [
+        { skill_name: "React", proficiency: "advanced", evidence_source: "portfolio_item" },
+        { skill_name: "TypeScript", proficiency: "intermediate", evidence_source: "portfolio_item" },
+        { skill_name: "Python", proficiency: "intermediate", evidence_source: "self_reported" }
+      ],
+      portfolio_technologies: ["React", "TypeScript", "IndexedDB"],
+      interests: ["Digital Literacy", "Rural Education"],
+      weekly_availability_hours: 10.0,
+      preferred_work_mode: "remote",
+      study_year: 3
+    },
+    candidate_projects: [
+      {
+        id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        title: "Offline-First Learning Portal",
+        category: "Digital Literacy",
+        short_description: "Build an offline-first learning interface for rural learning centers.",
+        required_skills: ["React", "TypeScript"],
+        weekly_commitment_hours: 8.0,
+        work_mode: "remote"
+      }
+    ],
+    limit: 5
+  }),
+});
+const recommendations = await response.json();
+```
+
+#### Request Payload (`AiProjectRecommendationsRequest`)
+
+```json
+{
+  "student": {
+    "skills": [
+      {
+        "skill_name": "React",
+        "proficiency": "advanced",
+        "evidence_source": "portfolio_item"
+      },
+      {
+        "skill_name": "TypeScript",
+        "proficiency": "intermediate",
+        "evidence_source": "portfolio_item"
+      },
+      {
+        "skill_name": "Python",
+        "proficiency": "intermediate",
+        "evidence_source": "self_reported"
+      }
+    ],
+    "portfolio_technologies": ["React", "TypeScript", "IndexedDB"],
+    "interests": ["Digital Literacy", "Rural Education"],
+    "weekly_availability_hours": 10.0,
+    "preferred_work_mode": "remote",
+    "study_year": 3
+  },
+  "candidate_projects": [
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "title": "Offline-First Learning Portal",
+      "category": "Digital Literacy",
+      "short_description": "Build an offline-first learning interface for rural learning centers.",
+      "required_skills": ["React", "TypeScript"],
+      "weekly_commitment_hours: 8.0,
+      "work_mode": "remote"
+    }
+  ],
+  "limit": 5
+}
+```
+
+#### Response Payload (`AiProjectRecommendationsResponse`)
+
+```json
+{
+  "recommendations": [
+    {
+      "project_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "title": "Offline-First Learning Portal",
+      "match_score": 0.94,
+      "matching_skills": ["React", "TypeScript"],
+      "missing_skills": [],
+      "match_explanation": "Strong alignment with student's demonstrated portfolio experience in React and TypeScript.",
+      "suitability_reasoning": "Weekly commitment of 8 hours fits comfortably within stated 10 hours availability, and work mode matches perfectly.",
+      "limitations_or_concerns": ["Confirm specific offline caching requirements directly with the NGO team."]
+    }
+  ],
+  "evaluated_projects_count": 1,
+  "is_fallback": false,
+  "disclaimer": "AI recommendations are advisory and designed to help explore relevant opportunities. Review all project specifications before applying."
+}
+```
 
